@@ -1,4 +1,3 @@
-console.log("1111");
 //生成产品大类表
 //生成产品小类表
 //生成产品信息
@@ -10,12 +9,17 @@ var async = require("async");
 
 
 
-var cateMap  = {
+var bigCateMap  = {
 
 }
 async.series([loadAllCate],function(error){
-   console.log("loaded!");
+
+    buildSql(bigCateMap,function(){
+
+    })
+    console.log(sqls);
 })
+
 
 function loadAllCate(callback){
     var rootpath= __dirname+"/resume/big";
@@ -30,12 +34,17 @@ function loadAllCate(callback){
                         subcallback(error);
                     }else{
                         if(stat.isDirectory()){
-                            path.exists(rootpath+"/"+file+".json", function(exists) {
+                            fs.exists(rootpath+"/"+file+".json", function(exists) {
                                 if (exists) {
                                     var json = readJsonFileSync(rootpath+"/"+file+".json");
-                                    console.log(json);
+                                    if(!bigCateMap[file]){
+                                        bigCateMap[file] = {
+                                            meta:json,
+                                            smallCateMap:{}
+                                        };
+                                    }
                                     //生成小类sql语句
-                                    buildSmallCate(rootpath+"/"+file,subcallback);
+                                    buildSmallCate(rootpath+"/"+file,bigCateMap[file],subcallback);
                                 }else{
                                     subcallback(null);
                                 }
@@ -52,7 +61,7 @@ function loadAllCate(callback){
     })
 }
 
-function buildSmallCate(catePath,callback){
+function buildSmallCate(catePath,bigCate,callback){
     fs.readdir(catePath, function(error,files){
         if(error){
             callback(error);
@@ -63,12 +72,17 @@ function buildSmallCate(catePath,callback){
                         subcallback(error);
                     }else{
                         if(stat.isDirectory()){
-                            path.exists(catePath+"/"+file+".json", function(exists) {
+                            fs.exists(catePath+"/"+file+".json", function(exists) {
                                 if (exists) {
                                     var json = readJsonFileSync(catePath+"/"+file+".json");
-                                    console.log(json);
+                                    if(!bigCate.smallCateMap[file]){
+                                        bigCate.smallCateMap[file] = {
+                                            meta:json,
+                                            productMap:{}
+                                        };
+                                    }
                                     //生成小类sql语句
-                                    buildProduct(catePath+"/"+file,subcallback);
+                                    buildProduct(catePath+"/"+file,bigCate.smallCateMap[file],subcallback);
                                 }else{
                                     subcallback(null);
                                 }
@@ -85,7 +99,7 @@ function buildSmallCate(catePath,callback){
     })
 }
 
-function buildProduct(catePath,callback){
+function buildProduct(catePath,smallCate,callback){
     fs.readdir(catePath, function(error,files){
         if(error){
             callback(error);
@@ -97,10 +111,14 @@ function buildProduct(catePath,callback){
                     }else{
                         if(stat.isFile() && endsWith(file,".jpg")){
                             var fileshortName =  file.substring(0,file.lastIndexOf("_0.jpg"));
-                            path.exists(catePath+"/"+fileshortName+".json", function(exists) {
+                            fs.exists(catePath+"/"+fileshortName+".json", function(exists) {
                                 if (exists) {
                                     var json = readJsonFileSync(catePath+"/"+fileshortName+".json");
-                                    console.log(json);
+                                    if(!smallCate.productMap[fileshortName]){
+                                        smallCate.productMap[fileshortName] = {
+                                            meta:json
+                                        };
+                                    }
                                     //生成小类sql语句
                                     subcallback(null);
                                 }else{
@@ -119,10 +137,64 @@ function buildProduct(catePath,callback){
     })
 }
 
+var sqls = [];
+function buildSql(bigCateMap,callback){
+    _.each(bigCateMap,function(bigCate,bigCateName){
+        buildBigCateSql(bigCate);
+    })
 
-function buildSql(callback){
+    function buildBigCateSql(bigCate){
+        var sqltemp = "insert into yuzhiguo_big_class ({0}) values ({1})";
+        var fields = "";
+        var values = "";
+        _.each(bigCate.meta,function(value,key){
+            fields = fields+","+key+"";
+            values = values+",'"+value+"'";
+        });
+        fields = fields.substring(1);
+        values = values.substring(1);
+        sqls.push(sqltemp.format(fields,values));
+
+        _.each(bigCate.smallCateMap,function(smallCate,bigCateName){
+            buildSmallCateSql(smallCate);
+        })
+
+
+    }
+    function buildSmallCateSql(smallCate){
+        var sqltemp = "insert into yuzhiguo_small_class ({0}) values ({1})";
+        var fields = "";
+        var values = "";
+        _.each(smallCate.meta,function(value,key){
+            fields = fields+","+key+"";
+            values = values+",'"+value+"'";
+        });
+        fields = fields.substring(1);
+        values = values.substring(1);
+        sqls.push(sqltemp.format(fields,values));
+
+
+        _.each(smallCate.productMap,function(product,productName){
+            buildProductSql(product);
+        })
+
+    }
+    function buildProductSql(product){
+        var sqltemp = "insert into yuzhiguo_products ({0}) values ({1})";
+        var fields = "";
+        var values = "";
+        _.each(product.meta,function(value,key){
+            fields = fields+","+key+"";
+            values = values+",'"+value+"'";
+        });
+        fields = fields.substring(1);
+        values = values.substring(1);
+        sqls.push(sqltemp.format(fields,values));
+    }
 
 }
+
+
 
 
 function endsWith(str, substring, position) {
@@ -155,3 +227,11 @@ function readJsonFileSync(cfgPath) {
     var data = fs.readFileSync(cfgPath, "UTF-8");
     return JSON.parse(data);
 }
+String.prototype.format = function() {
+    var formatted = this;
+    for (var i = 0; i < arguments.length; i++) {
+        var regexp = new RegExp('\\{'+i+'\\}', 'gi');
+        formatted = formatted.replace(regexp, arguments[i]);
+    }
+    return formatted;
+};
